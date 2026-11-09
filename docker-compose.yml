@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    container_name: doctor_connect_web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_NAME=doctor_connect
+      - DB_USER=doctor_user
+      - DB_PASS=doctor_secure_password_2026
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mariadb:10.11
+    container_name: doctor_connect_db
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_secure_password
+      - MYSQL_DATABASE=doctor_connect
+      - MYSQL_USER=doctor_user
+      - MYSQL_PASSWORD=doctor_secure_password_2026
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./config/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./config/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_data:

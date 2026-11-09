@@ -1,0 +1,16 @@
+# Prevent Directory Listing
+Options -Indexes
+
+# Protect Sensitive Configuration, Schema, and Log Files
+<FilesMatch "\.(sql|env|git|log|md)$">
+    Require all denied
+</FilesMatch>
+
+# Set UTF-8 encoding
+AddDefaultCharset UTF-8
+
+# Enable Rewrite Engine
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+</IfModule>

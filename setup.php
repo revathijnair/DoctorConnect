@@ -9,35 +9,61 @@ $message = '';
 $error = '';
 $installed = false;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['auto'])) {
+$isCli = (php_sapi_name() === 'cli');
+$isPost = ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+$isAuto = isset($_GET['auto']) || ($isCli && in_array('install', $argv ?? ['install']));
+
+if ($isPost || $isAuto || $isCli) {
     try {
+        if ($isCli) {
+            echo "==================================================\n";
+            echo " DOCTOR CONNECT - CLI Database Installer\n";
+            echo "==================================================\n";
+            echo "Connecting to MySQL at " . DB_HOST . ":" . DB_PORT . " as " . DB_USER . "...\n";
+        }
+
         // 1. Connect to MySQL server without selecting DB initially
         $rootDsn = "mysql:host=" . DB_HOST . ";port=" . DB_PORT . ";charset=utf8mb4";
         $pdo = new PDO($rootDsn, DB_USER, DB_PASS, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
         ]);
 
-        // 2. Create Database
+        if ($isCli) echo "[1/4] Connected. Creating database `" . DB_NAME . "`...\n";
         $pdo->exec("CREATE DATABASE IF NOT EXISTS `" . DB_NAME . "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
         $pdo->exec("USE `" . DB_NAME . "`");
 
-        // 3. Execute Schema
+        if ($isCli) echo "[2/4] Executing schema.sql (tables, indexes, constraints)...\n";
         $schemaSql = file_get_contents(__DIR__ . '/config/schema.sql');
         $pdo->exec($schemaSql);
 
-        // 4. Execute Seed SQL
+        if ($isCli) echo "[3/4] Executing seed.sql (demo users, doctors, schedules)...\n";
         $seedSql = file_get_contents(__DIR__ . '/config/seed.sql');
         $pdo->exec($seedSql);
 
-        // 5. Ensure bcrypt hashes match password123 precisely using current PHP runtime
+        if ($isCli) echo "[4/4] Setting demo password ('password123') with native bcrypt...\n";
         $defaultHash = password_hash('password123', PASSWORD_BCRYPT);
         $updateHashStmt = $pdo->prepare("UPDATE users SET password_hash = :hash WHERE email IN ('admin@doctorconnect.com', 'dr.vance@doctorconnect.com', 'dr.sarah@doctorconnect.com', 'dr.thorne@doctorconnect.com', 'john.doe@example.com', 'emily.w@example.com', 'mbrown@example.com')");
         $updateHashStmt->execute([':hash' => $defaultHash]);
 
         $installed = true;
         $message = "Database `" . DB_NAME . "` successfully installed and seeded with demo data!";
+
+        if ($isCli) {
+            echo "\n✓ SUCCESS: " . $message . "\n\n";
+            echo "Demo Accounts:\n";
+            echo " - Admin:   admin@doctorconnect.com     (password: password123)\n";
+            echo " - Doctor:  dr.vance@doctorconnect.com  (password: password123)\n";
+            echo " - Patient: john.doe@example.com        (password: password123)\n\n";
+            echo "Start server with: php -S localhost:8000\n";
+            echo "Then open: http://localhost:8000\n";
+            exit(0);
+        }
     } catch (Exception $e) {
         $error = "Installation failed: " . $e->getMessage();
+        if ($isCli) {
+            echo "\n✕ ERROR: " . $error . "\n";
+            exit(1);
+        }
     }
 }
 ?>

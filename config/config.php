@@ -25,8 +25,8 @@ define('SESSION_TIMEOUT_MINS', 30);
 define('DEFAULT_JITSI_DOMAIN', 'meet.jit.si');
 define('CANCELLATION_WINDOW_HOURS', 2);
 
-// Session Security Configuration
-if (session_status() === PHP_SESSION_NONE) {
+// Session Security Configuration (Web requests only)
+if (php_sapi_name() !== 'cli' && session_status() === PHP_SESSION_NONE) {
     ini_set('session.cookie_httponly', 1);
     ini_set('session.use_only_cookies', 1);
     ini_set('session.cookie_samesite', 'Lax');

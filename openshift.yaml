@@ -1,0 +1,222 @@
+apiVersion: v1
+kind: List
+items:
+  # 1. Database Secret
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: doctor-db-secret
+      labels:
+        app: doctor-connect
+    type: Opaque
+    stringData:
+      database-name: doctor_connect
+      database-user: doctor_user
+      database-password: doctor_secure_password_2026
+      database-root-password: root_secure_password_2026
+
+  # 2. MariaDB / MySQL Persistent Deployment
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: doctor-mysql
+      labels:
+        app: doctor-connect
+        tier: database
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: doctor-connect
+          tier: database
+      template:
+        metadata:
+          labels:
+            app: doctor-connect
+            tier: database
+        spec:
+          containers:
+            - name: mysql
+              image: image-registry.openshift-image-registry.svc:5000/openshift/mariadb:10.5
+              imagePullPolicy: IfNotPresent
+              ports:
+                - containerPort: 3306
+                  name: mysql
+              env:
+                - name: MYSQL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: doctor-db-secret
+                      key: database-user
+                - name: MYSQL_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: doctor-db-secret
+                      key: database-password
+                - name: MYSQL_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: doctor-db-secret
+                      key: database-root-password
+                - name: MYSQL_DATABASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: doctor-db-secret
+                      key: database-name
+              resources:
+                limits:
+                  memory: 512Mi
+                requests:
+                  memory: 256Mi
+              volumeMounts:
+                - name: mysql-data
+                  mountPath: /var/lib/mysql/data
+          volumes:
+            - name: mysql-data
+              emptyDir: {}
+
+  # 3. MySQL Internal Service
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: doctor-mysql
+      labels:
+        app: doctor-connect
+        tier: database
+    spec:
+      ports:
+        - port: 3306
+          targetPort: 3306
+      selector:
+        app: doctor-connect
+        tier: database
+
+  # 4. DoctorConnect Web ImageStream
+  - apiVersion: image.openshift.io/v1
+    kind: ImageStream
+    metadata:
+      name: doctor-connect
+      labels:
+        app: doctor-connect
+
+  # 5. BuildConfig (Builds directly from GitHub repo)
+  - apiVersion: build.openshift.io/v1
+    kind: BuildConfig
+    metadata:
+      name: doctor-connect
+      labels:
+        app: doctor-connect
+    spec:
+      source:
+        type: Git
+        git:
+          uri: https://github.com/revathijnair/DoctorConnect.git
+          ref: main
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Dockerfile
+      output:
+        to:
+          kind: ImageStreamTag
+          name: doctor-connect:latest
+      triggers:
+        - type: ConfigChange
+
+  # 6. DoctorConnect Web Deployment
+  - apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: doctor-connect
+      labels:
+        app: doctor-connect
+        tier: frontend
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: doctor-connect
+          tier: frontend
+      template:
+        metadata:
+          labels:
+            app: doctor-connect
+            tier: frontend
+        spec:
+          containers:
+            - name: doctor-connect
+              image: doctor-connect:latest
+              ports:
+                - containerPort: 8080
+                  name: http
+              env:
+                - name: DB_HOST
+                  value: doctor-mysql
+                - name: DB_PORT
+                  value: "3306"
+                - name: DB_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: doctor-db-secret
+                      key: database-name
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: doctor-db-secret
+                      key: database-user
+                - name: DB_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: doctor-db-secret
+                      key: database-password
+              resources:
+                limits:
+                  memory: 512Mi
+                requests:
+                  memory: 256Mi
+              livenessProbe:
+                httpGet:
+                  path: /
+                  port: 8080
+                initialDelaySeconds: 15
+                periodSeconds: 20
+              readinessProbe:
+                httpGet:
+                  path: /
+                  port: 8080
+                initialDelaySeconds: 5
+                periodSeconds: 10
+
+  # 7. DoctorConnect Web Service
+  - apiVersion: v1
+    kind: Service
+    metadata:
+      name: doctor-connect
+      labels:
+        app: doctor-connect
+        tier: frontend
+    spec:
+      ports:
+        - port: 8080
+          targetPort: 8080
+          name: http
+      selector:
+        app: doctor-connect
+        tier: frontend
+
+  # 8. OpenShift Route with Automatic Edge TLS (HTTPS)
+  - apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: doctor-connect
+      labels:
+        app: doctor-connect
+    spec:
+      to:
+        kind: Service
+        name: doctor-connect
+      port:
+        targetPort: http
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
